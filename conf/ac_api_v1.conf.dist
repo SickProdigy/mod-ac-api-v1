@@ -1,0 +1,13 @@
+[worldserver]
+
+########################################
+# AC API v1 configuration
+########################################
+#
+#    AcApiV1.Enable
+#        Description: Enables the AC API v1 module.
+#        Default:     0 - Disabled
+#                     1 - Enabled
+#
+
+AcApiV1.Enable = 0
