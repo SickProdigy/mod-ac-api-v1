@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
+#include <chrono>
+#include <thread>
 #include <string>
 
 using namespace AcApiV1;
@@ -15,11 +17,14 @@ class ListenerBackend final : public Backend
 {
 public:
     bool throwCapabilities = false;
+    bool delayCapabilities = false;
     bool IsReady() const override { return true; }
     Json Capabilities() const override
     {
         if (throwCapabilities)
             throw std::runtime_error("private backend diagnostic");
+        if (delayCapabilities)
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
         return {{"api_version", "v1"}};
     }
     Response InspectAccount(std::string const&) override { return {200, Json::object()}; }
@@ -84,6 +89,18 @@ int main()
         "per-client rate limit is enforced");
 
     server.Stop();
+
+    serverConfig.port = 18092;
+    serverConfig.requestsPerMinute = 100;
+    HttpServer timeoutServer(serverConfig, service);
+    Expect(timeoutServer.Start(), "timeout test listener starts");
+    backend.delayCapabilities = true;
+    httplib::Client timeoutClient("127.0.0.1", serverConfig.port);
+    timeoutClient.set_read_timeout(0, 50000);
+    auto timedOut = timeoutClient.Get("/v1/capabilities", headers);
+    Expect(!timedOut, "caller observes a bounded timeout for a stalled backend");
+    timeoutServer.Stop();
+
     if (failures != 0)
         return EXIT_FAILURE;
     std::cout << "All HttpServer tests passed\n";

@@ -1,0 +1,241 @@
+#include "ApiService.h"
+
+#include <cstdlib>
+#include <iostream>
+#include <map>
+#include <string>
+
+using namespace AcApiV1;
+
+namespace
+{
+struct Account
+{
+    std::uint32_t id = 0;
+    bool managed = false;
+    bool suspended = false;
+};
+
+class RecoverableBackend final : public Backend
+{
+public:
+    bool failAfterRemoteCreate = false;
+    bool backendUnavailable = false;
+
+    bool IsReady() const override { return !backendUnavailable; }
+    Json Capabilities() const override { return {{"api_version", "v1"}}; }
+
+    Response InspectAccount(std::string const& username) override
+    {
+        auto found = accounts.find(username);
+        if (found == accounts.end())
+            return Error(404, "account_not_found", "missing");
+        return {200, {{"id", found->second.id}, {"username", username},
+            {"managed", found->second.managed},
+            {"state", found->second.managed
+                ? (found->second.suspended ? "suspended" : "active") : "unmanaged"}}};
+    }
+
+    Response CreateAccount(std::string const& username, std::string const& password,
+        std::string const& key) override
+    {
+        if (backendUnavailable)
+            return Error(503, "backend_unavailable", "unavailable");
+        std::string const fingerprint = username + "\n" + password;
+        if (auto completed = results.find(key); completed != results.end())
+        {
+            if (completed->second.first != fingerprint)
+                return Error(409, "idempotency_conflict", "conflict");
+            return completed->second.second;
+        }
+        auto reservation = reservations.find(username);
+        if (reservation != reservations.end() && reservation->second != key)
+            return Error(409, "account_collision", "collision");
+
+        auto found = accounts.find(username);
+        if (found != accounts.end() && reservation == reservations.end())
+            return Error(409, "account_collision", "collision");
+        reservations[username] = key;
+        if (found == accounts.end())
+            found = accounts.emplace(username, Account{nextId++, false, false}).first;
+
+        if (failAfterRemoteCreate)
+        {
+            failAfterRemoteCreate = false;
+            return Error(503, "partial_success", "retry");
+        }
+
+        found->second.managed = true;
+        Response response{201, {{"id", found->second.id}, {"username", username},
+            {"managed", true}, {"state", "active"}, {"credential_generated", password.empty()}}};
+        results.emplace(key, std::make_pair(fingerprint, response));
+        return response;
+    }
+
+    Response ResetPassword(std::uint32_t id, std::string const& key) override
+    {
+        return Mutate(id, key, "reset", false);
+    }
+    Response SuspendAccount(std::uint32_t id, std::string const& key) override
+    {
+        return Mutate(id, key, "suspend", true);
+    }
+    Response RestoreAccount(std::uint32_t id, std::string const& key) override
+    {
+        auto account = FindManaged(id);
+        if (!account)
+            return Error(409, "unmanaged_account", "unmanaged");
+        account->suspended = false;
+        return CompleteMutation(key, "restore", id, "active");
+    }
+
+    Response CharacterStats(std::uint32_t) override { return {200, Json::object()}; }
+    Response GuildStats(std::uint32_t, std::size_t, std::size_t) override { return {200, Json::object()}; }
+    Response RealmStatus() override { return {200, Json::object()}; }
+    Response PlayerLeaderboard(std::string const&, std::size_t, std::size_t) override { return {200, Json::object()}; }
+
+    void AddUnmanaged(std::string username)
+    {
+        accounts.emplace(std::move(username), Account{nextId++, false, false});
+    }
+
+private:
+    Account* FindManaged(std::uint32_t id)
+    {
+        for (auto& [username, account] : accounts)
+            if (account.id == id && account.managed)
+                return &account;
+        return nullptr;
+    }
+
+    Response Mutate(std::uint32_t id, std::string const& key, std::string operation,
+        bool suspended)
+    {
+        if (backendUnavailable)
+            return Error(503, "backend_unavailable", "unavailable");
+        auto account = FindManaged(id);
+        if (!account)
+            return Error(409, "unmanaged_account", "unmanaged");
+        account->suspended = suspended;
+        return CompleteMutation(key, std::move(operation), id,
+            suspended ? "suspended" : "active");
+    }
+
+    Response CompleteMutation(std::string const& key, std::string operation,
+        std::uint32_t id, std::string state)
+    {
+        std::string const fingerprint = operation + ":" + std::to_string(id);
+        if (auto completed = results.find(key); completed != results.end())
+        {
+            if (completed->second.first != fingerprint)
+                return Error(409, "idempotency_conflict", "conflict");
+            return completed->second.second;
+        }
+        Response response{200, {{"id", id}, {"state", std::move(state)}}};
+        results.emplace(key, std::make_pair(fingerprint, response));
+        return response;
+    }
+
+    std::uint32_t nextId = 100;
+    std::map<std::string, Account> accounts;
+    std::map<std::string, std::string> reservations;
+    std::map<std::string, std::pair<std::string, Response>> results;
+};
+
+int failures = 0;
+void Expect(bool condition, std::string const& message)
+{
+    if (!condition)
+    {
+        std::cerr << "FAIL: " << message << '\n';
+        ++failures;
+    }
+}
+
+Request Authorized(std::string method, std::string path)
+{
+    Request request;
+    request.method = std::move(method);
+    request.path = std::move(path);
+    request.headers["authorization"] = "Bearer account-token";
+    return request;
+}
+
+std::string ErrorCode(Response const& response)
+{
+    return response.body.contains("error") ? response.body["error"].value("code", "") : "";
+}
+}
+
+int main()
+{
+    RecoverableBackend backend;
+    ServiceConfig config;
+    config.accountToken = "account-token";
+    config.communityToken = "community-token";
+    ApiService service(config, backend);
+
+    Request create = Authorized("POST", "/v1/accounts");
+    create.headers["idempotency-key"] = "create-key-00001";
+    create.body = R"({"username":"playerone","password":"ValidPass9!"})";
+    Response first = service.Handle(create);
+    Response retry = service.Handle(create);
+    Expect(first.status == 201 && retry.status == 201 && first.body["id"] == retry.body["id"],
+        "create retry returns the same account");
+
+    Request inspect = Authorized("GET", "/v1/accounts/by-username/playerone");
+    Response inspected = service.Handle(inspect);
+    Expect(inspected.status == 200 && inspected.body["managed"] == true,
+        "created account can be reconciled by normalized username");
+
+    std::uint32_t const id = inspected.body["id"].get<std::uint32_t>();
+    for (std::string const operation : {"password-reset", "suspend", "restore"})
+    {
+        Request write = Authorized("POST", "/v1/accounts/" + std::to_string(id) + "/" + operation);
+        write.headers["idempotency-key"] = operation + "-key-00001";
+        Response result = service.Handle(write);
+        Response repeated = service.Handle(write);
+        Expect(result.status == 200 && repeated.status == 200 && result.body == repeated.body,
+            operation + " is idempotent");
+    }
+
+    backend.AddUnmanaged("TAKEN");
+    Request collision = create;
+    collision.headers["idempotency-key"] = "collision-key-01";
+    collision.body = R"({"username":"taken"})";
+    Expect(ErrorCode(service.Handle(collision)) == "account_collision",
+        "unmanaged collision is not adopted");
+
+    Request changed = create;
+    changed.body = R"({"username":"different","password":"ValidPass9!"})";
+    Expect(ErrorCode(service.Handle(changed)) == "idempotency_conflict",
+        "idempotency key cannot be reused for different input");
+
+    Request crash = create;
+    crash.headers["idempotency-key"] = "crash-recovery-1";
+    crash.body = R"({"username":"recoverme"})";
+    backend.failAfterRemoteCreate = true;
+    Expect(ErrorCode(service.Handle(crash)) == "partial_success",
+        "remote success before mapping is reported as partial");
+    Response recovered = service.Handle(crash);
+    Expect(recovered.status == 201 && recovered.body["managed"] == true,
+        "same-key retry recovers mapping without a duplicate account");
+
+    backend.backendUnavailable = true;
+    Request unavailable = Authorized("POST", "/v1/accounts/" + std::to_string(id) + "/password-reset");
+    unavailable.headers["idempotency-key"] = "timeout-key-0001";
+    Expect(ErrorCode(service.Handle(unavailable)) == "backend_unavailable",
+        "timeout-equivalent backend unavailability has a stable error");
+
+    Request invalid = create;
+    invalid.body = R"({"username":"bad_name"})";
+    Expect(ErrorCode(service.Handle(invalid)) == "invalid_username", "invalid input is rejected");
+    Request unauthorized = create;
+    unauthorized.headers.erase("authorization");
+    Expect(ErrorCode(service.Handle(unauthorized)) == "unauthorized", "authorization failure is stable");
+
+    if (failures != 0)
+        return EXIT_FAILURE;
+    std::cout << "All lifecycle contract tests passed\n";
+    return EXIT_SUCCESS;
+}
