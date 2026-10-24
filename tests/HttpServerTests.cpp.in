@@ -1,0 +1,91 @@
+#include "ApiService.h"
+#include "HttpServer.h"
+#include "../deps/cpp-httplib/httplib.h"
+
+#include <cstdlib>
+#include <iostream>
+#include <stdexcept>
+#include <string>
+
+using namespace AcApiV1;
+
+namespace
+{
+class ListenerBackend final : public Backend
+{
+public:
+    bool throwCapabilities = false;
+    bool IsReady() const override { return true; }
+    Json Capabilities() const override
+    {
+        if (throwCapabilities)
+            throw std::runtime_error("private backend diagnostic");
+        return {{"api_version", "v1"}};
+    }
+    Response InspectAccount(std::string const&) override { return {200, Json::object()}; }
+    Response CreateAccount(std::string const&, std::string const&, std::string const&) override { return {201, Json::object()}; }
+    Response ResetPassword(std::uint32_t, std::string const&) override { return {200, Json::object()}; }
+    Response SuspendAccount(std::uint32_t, std::string const&) override { return {200, Json::object()}; }
+    Response RestoreAccount(std::uint32_t, std::string const&) override { return {200, Json::object()}; }
+    Response CharacterStats(std::uint32_t) override { return {200, Json::object()}; }
+    Response GuildStats(std::uint32_t, std::size_t, std::size_t) override { return {200, Json::object()}; }
+    Response RealmStatus() override { return {200, Json::object()}; }
+    Response PlayerLeaderboard(std::string const&, std::size_t, std::size_t) override { return {200, Json::object()}; }
+};
+
+int failures = 0;
+void Expect(bool condition, std::string const& message)
+{
+    if (!condition)
+    {
+        std::cerr << "FAIL: " << message << '\n';
+        ++failures;
+    }
+}
+}
+
+int main()
+{
+    ListenerBackend backend;
+    ServiceConfig serviceConfig;
+    serviceConfig.accountToken = "account-token-32-characters-long!";
+    serviceConfig.communityToken = "community-token-32-characters-long";
+    ApiService service(serviceConfig, backend);
+
+    HttpServerConfig serverConfig;
+    serverConfig.port = 18091;
+    serverConfig.workerThreads = 2;
+    serverConfig.maxQueuedRequests = 4;
+    serverConfig.requestsPerMinute = 3;
+    HttpServer server(serverConfig, service);
+    Expect(server.Start(), "listener starts on loopback");
+
+    httplib::Client client("127.0.0.1", serverConfig.port);
+    auto health = client.Get("/healthz");
+    Expect(health && health->status == 200, "health route works over HTTP");
+
+    auto unauthorized = client.Get("/v1/capabilities");
+    Expect(unauthorized && unauthorized->status == 401
+        && unauthorized->get_header_value("WWW-Authenticate") == "Bearer",
+        "HTTP authorization failure includes challenge");
+
+    httplib::Headers headers = {{"Authorization", "Bearer " + serviceConfig.accountToken}};
+    backend.throwCapabilities = true;
+    auto fault = client.Get("/v1/capabilities", headers);
+    Expect(fault && fault->status == 503
+        && fault->body.find("private backend diagnostic") == std::string::npos,
+        "backend exceptions are sanitized");
+
+    backend.throwCapabilities = false;
+    auto allowed = client.Get("/v1/capabilities", headers);
+    Expect(allowed && allowed->status == 200, "request within rate limit succeeds");
+    auto limited = client.Get("/v1/capabilities", headers);
+    Expect(limited && limited->status == 429 && limited->get_header_value("Retry-After") == "60",
+        "per-client rate limit is enforced");
+
+    server.Stop();
+    if (failures != 0)
+        return EXIT_FAILURE;
+    std::cout << "All HttpServer tests passed\n";
+    return EXIT_SUCCESS;
+}

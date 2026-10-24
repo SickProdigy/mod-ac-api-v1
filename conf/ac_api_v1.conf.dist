@@ -1,13 +1,42 @@
 [worldserver]
 
 ########################################
-# AC API v1 configuration
+# AC API v1
 ########################################
 #
-#    AcApiV1.Enable
-#        Description: Enables the AC API v1 module.
-#        Default:     0 - Disabled
-#                     1 - Enabled
+# The API is disabled by default. BindAddress must be loopback, RFC1918,
+# carrier-grade NAT (100.64.0.0/10), or IPv6 unique-local. Put it on the
+# private Docker/WireGuard management path; the module rejects public and
+# wildcard bind addresses.
+#
+# AccountWriteToken and CommunityReadToken are independent bearer credentials.
+# Each must contain at least 32 characters and they must not be equal.
+#
+# CredentialDerivationSecret must be a stable random secret of at least 32
+# characters. It deterministically recovers one-time generated credentials
+# after a process crash without storing plaintext passwords. Rotating it
+# invalidates recovery for unfinished/retried password operations.
+#
+# Never commit real credentials to this file. Place them in the installed
+# module configuration or inject them with AzerothCore config overrides.
 #
 
 AcApiV1.Enable = 0
+AcApiV1.BindAddress = "127.0.0.1"
+AcApiV1.Port = 8090
+
+AcApiV1.AccountWriteToken = ""
+AcApiV1.CommunityReadToken = ""
+AcApiV1.CredentialDerivationSecret = ""
+
+# Required connection string for a SELECT-only MySQL user on acore_characters.
+# Format: host;port;user;password;database
+AcApiV1.CommunityDatabaseInfo = ""
+AcApiV1.CommunityDatabaseThreads = 2
+
+AcApiV1.WorkerThreads = 4
+AcApiV1.MaxQueuedRequests = 64
+AcApiV1.TimeoutSeconds = 5
+AcApiV1.RequestsPerMinute = 120
+AcApiV1.MaxRequestBodyBytes = 16384
+AcApiV1.MaxPageSize = 100

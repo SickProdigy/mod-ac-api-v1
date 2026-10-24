@@ -1,31 +1,48 @@
 # ac-api-v1
 
-An API module for [AzerothCore](https://www.azerothcore.org/).
+A private HTTP API module for [AzerothCore](https://www.azerothcore.org/) that provides managed player-account lifecycle operations and read-only community data for websites and Discord bots.
 
-## Status
+## Features
 
-The repository contains the initial AzerothCore module scaffold. API behavior will be added incrementally through the repository issue tracker.
+- Version and capability discovery.
+- Inspect, idempotently create, reset, suspend, and restore API-managed non-GM accounts.
+- Player leaderboards by level, playtime, honor, or kills.
+- Character, guild roster, and realm population endpoints.
+- Separate bearer credentials for account writes and community reads.
+- Persistent idempotency, managed-account ownership, managed-suspension ownership, and secret-free audit events.
+- Private-address-only listener with bounded payloads, queueing, timeouts, pagination, and rate limiting.
+- A dedicated community database pool intended for a `SELECT`-only MySQL user.
+
+The API will not adopt or modify pre-existing unmanaged accounts, privileged accounts, or bans it did not create.
 
 ## Installation
 
-Clone the repository into the `modules` directory of an AzerothCore checkout:
+Place this repository at `modules/ac-api-v1` in an AzerothCore checkout, then reconfigure and rebuild the worldserver. AzerothCore discovers the module automatically and installs `ac_api_v1.conf.dist` with the other module configuration templates.
 
-```bash
-git clone <repository-url> modules/ac-api-v1
-```
+The auth database migration in `data/sql/db-auth/base_ac_api_v1.sql` is loaded through AzerothCore's module SQL system. It creates only module-owned bookkeeping and audit tables.
 
-Reconfigure and rebuild AzerothCore. The module is discovered automatically by the core module build system.
+## Configuration
+
+Copy the installed module configuration template to its active `.conf` form and set:
+
+- three distinct, random secrets of at least 32 characters;
+- a loopback, RFC1918, CGNAT, or IPv6 unique-local bind address;
+- `CommunityDatabaseInfo` for a `SELECT`-only user on `acore_characters`;
+- `AcApiV1.Enable = 1` after the database grants and private network path are ready.
+
+See [SECURITY.md](SECURITY.md) for the recommended grants and network boundary. See [docs/API.md](docs/API.md) for the endpoint contract and failure semantics.
 
 ## Development
 
-The module follows the official [AzerothCore module structure](https://www.azerothcore.org/wiki/The-Modular-Structure):
+Run the standalone routing and validation suite:
 
-- `src/` contains C++ sources and the module loader.
-- `conf/` contains module configuration templates.
-- `data/sql/` is reserved for auth, characters, and world database migrations.
-- `apps/` is reserved for module lifecycle tooling.
+```bash
+./tests/run.sh
+```
 
-For stricter include validation, compile AzerothCore with precompiled headers disabled by passing `-DNOPCH=1` to CMake.
+For authoritative integration validation, build an AzerothCore worldserver with this directory installed as `modules/ac-api-v1`. The module targets C++20 and has been checked with AzerothCore's warnings enabled.
+
+Vendored libraries are pinned under `deps/`; their upstream licenses are retained in each dependency directory.
 
 ## License
 

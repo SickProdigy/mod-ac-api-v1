@@ -14,6 +14,9 @@ public:
     Response ResetPassword(std::uint32_t id, std::string const& key) override { lastOperation = "reset"; lastAccountId = id; lastKey = key; return {200, {{"id", id}}}; }
     Response SuspendAccount(std::uint32_t id, std::string const& key) override { lastOperation = "suspend"; lastAccountId = id; lastKey = key; return {200, {{"id", id}}}; }
     Response RestoreAccount(std::uint32_t id, std::string const& key) override { lastOperation = "restore"; lastAccountId = id; lastKey = key; return {200, {{"id", id}}}; }
+    Response CharacterStats(std::uint32_t id) override { lastOperation = "character"; return {200, {{"character_id", id}}}; }
+    Response GuildStats(std::uint32_t id, std::size_t limit, std::size_t offset) override { lastOperation = "guild"; return {200, {{"guild_id", id}, {"limit", limit}, {"offset", offset}}}; }
+    Response RealmStatus() override { lastOperation = "realm"; return {200, {{"status", "online"}}}; }
     Response PlayerLeaderboard(std::string const& metric, std::size_t limit, std::size_t offset) override { lastOperation = "leaderboard"; return {200, {{"metric", metric}, {"limit", limit}, {"offset", offset}}}; }
 };
 int failures = 0;
@@ -54,6 +57,26 @@ int main() {
     Expect(response.status == 200 && response.body["limit"] == 50 && response.body["offset"] == 10, "leaderboard pagination is bounded");
     Request wrongScope = Authorized("GET", "/v1/leaderboards/players", "account-secret");
     Expect(service.Handle(wrongScope).status == 401, "account token cannot read community data");
+    Request suspend = Authorized("POST", "/v1/accounts/42/suspend", "account-secret");
+    suspend.headers["idempotency-key"] = "suspend-key-1234"; response = service.Handle(suspend);
+    Expect(response.status == 200 && backend.lastOperation == "suspend", "suspend route reaches backend");
+    Request restore = Authorized("POST", "/v1/accounts/42/restore", "account-secret");
+    restore.headers["idempotency-key"] = "restore-key-12345"; response = service.Handle(restore);
+    Expect(response.status == 200 && backend.lastOperation == "restore", "restore route reaches backend");
+    Request character = Authorized("GET", "/v1/characters/7", "community-secret");
+    Expect(service.Handle(character).status == 200 && backend.lastOperation == "character", "character route reaches backend");
+    Request guild = Authorized("GET", "/v1/guilds/9", "community-secret");
+    guild.query = {{"limit", "10"}, {"offset", "5"}}; response = service.Handle(guild);
+    Expect(response.status == 200 && response.body["limit"] == 10, "guild route parses pagination");
+    Request realm = Authorized("GET", "/v1/realm/status", "community-secret");
+    Expect(service.Handle(realm).status == 200 && backend.lastOperation == "realm", "realm route reaches backend");
+    Request invalidPagination = leaderboard; invalidPagination.query["offset"] = "-1";
+    Expect(service.Handle(invalidPagination).status == 400, "signed pagination is rejected");
+    Request invalidType = create; invalidType.body = R"({"username":42})";
+    Expect(service.Handle(invalidType).status == 400, "non-string account fields are rejected");
+    Request unknown = Authorized("POST", "/v1/accounts/42/unknown", "account-secret");
+    unknown.headers["idempotency-key"] = "unknown-key-12345";
+    Expect(service.Handle(unknown).status == 404, "unsupported account operation is explicit");
     Request oversized = create; oversized.body = std::string(129, 'x');
     Expect(service.Handle(oversized).status == 413, "request bodies are bounded");
     Expect(ApiService::IsValidUsername("ABC123"), "valid username accepted");

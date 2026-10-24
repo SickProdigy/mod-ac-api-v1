@@ -1,6 +1,6 @@
 #ifndef AC_API_V1_API_SERVICE_H
 #define AC_API_V1_API_SERVICE_H
-#include "json.hpp"
+#include "../deps/nlohmann/json.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -20,6 +20,9 @@ public:
     virtual Response ResetPassword(std::uint32_t accountId, std::string const& idempotencyKey) = 0;
     virtual Response SuspendAccount(std::uint32_t accountId, std::string const& idempotencyKey) = 0;
     virtual Response RestoreAccount(std::uint32_t accountId, std::string const& idempotencyKey) = 0;
+    virtual Response CharacterStats(std::uint32_t characterId) = 0;
+    virtual Response GuildStats(std::uint32_t guildId, std::size_t limit, std::size_t offset) = 0;
+    virtual Response RealmStatus() = 0;
     virtual Response PlayerLeaderboard(std::string const& metric, std::size_t limit, std::size_t offset) = 0;
 };
 class ApiService {
