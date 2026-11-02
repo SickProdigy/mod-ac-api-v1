@@ -121,7 +121,9 @@ Response ApiService::HandleAuthorized(Request const& request) {
     }
     if (request.path == "/v1/realm/status" && request.method == "GET") {
         if (!IsAuthorized(request, Scope::CommunityRead)) return Error(401, "unauthorized", "A community-read bearer credential is required.");
-        return _backend.RealmStatus();
+        PlayerAudience audience = PlayerAudience::Humans;
+        if (!QueryAudience(request, audience)) return Error(400, "invalid_audience", "Audience must be humans, ai, or all.");
+        return _backend.RealmStatus(audience);
     }
     if (request.path == "/v1/players/online" && request.method == "GET") {
         if (!IsAuthorized(request, Scope::CommunityRead)) return Error(401, "unauthorized", "A community-read bearer credential is required.");

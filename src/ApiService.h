@@ -23,7 +23,7 @@ public:
     virtual Response RestoreAccount(std::uint32_t accountId, std::string const& idempotencyKey) = 0;
     virtual Response CharacterStats(std::uint32_t characterId) = 0;
     virtual Response GuildStats(std::uint32_t guildId, std::size_t limit, std::size_t offset) = 0;
-    virtual Response RealmStatus() = 0;
+    virtual Response RealmStatus(PlayerAudience audience) = 0;
     virtual Response OnlinePlayers(PlayerAudience audience, std::size_t limit, std::size_t offset) = 0;
     virtual Response PlayerLeaderboard(std::string const& metric, PlayerAudience audience,
         std::size_t limit, std::size_t offset) = 0;

@@ -507,20 +507,25 @@ Response AzerothCoreBackend::GuildStats(std::uint32_t guildId, std::size_t limit
     }};
 }
 
-Response AzerothCoreBackend::RealmStatus()
+Response AzerothCoreBackend::RealmStatus(PlayerAudience audience)
 {
     if (!_communityDatabaseReady)
         return Error(503, "backend_unavailable", "The community database is unavailable.");
 
     QueryResult result = _communityDatabase->Query(
-        "SELECT COUNT(*), COALESCE(SUM(online <> 0), 0) "
-        "FROM characters WHERE deleteDate IS NULL");
+        "SELECT COUNT(*), COALESCE(SUM(c.online <> 0), 0) "
+        "FROM characters c "
+        "LEFT JOIN `{}`.playerbots_account_type pat "
+        "ON pat.account_id = c.account AND pat.account_type IN (1, 2) "
+        "WHERE c.deleteDate IS NULL AND {}",
+        _playerbotsDatabaseName, AudiencePredicate(audience));
     if (!result)
         return Error(503, "backend_unavailable", "The community database did not return realm status.");
 
     Field* fields = result->Fetch();
     return {200, {
         {"status", "online"},
+        {"audience", AudienceName(audience)},
         {"characters", fields[0].Get<std::uint64_t>()},
         {"online_characters", fields[1].Get<std::uint64_t>()}
     }};

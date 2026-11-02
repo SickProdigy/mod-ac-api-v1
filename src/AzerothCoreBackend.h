@@ -29,7 +29,7 @@ public:
     Response RestoreAccount(std::uint32_t accountId, std::string const& idempotencyKey) override;
     Response CharacterStats(std::uint32_t characterId) override;
     Response GuildStats(std::uint32_t guildId, std::size_t limit, std::size_t offset) override;
-    Response RealmStatus() override;
+    Response RealmStatus(PlayerAudience audience) override;
     Response OnlinePlayers(PlayerAudience audience, std::size_t limit,
         std::size_t offset) override;
     Response PlayerLeaderboard(std::string const& metric, PlayerAudience audience,

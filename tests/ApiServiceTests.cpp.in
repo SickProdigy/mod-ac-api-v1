@@ -16,7 +16,7 @@ public:
     Response RestoreAccount(std::uint32_t id, std::string const& key) override { lastOperation = "restore"; lastAccountId = id; lastKey = key; return {200, {{"id", id}}}; }
     Response CharacterStats(std::uint32_t id) override { lastOperation = "character"; return {200, {{"character_id", id}}}; }
     Response GuildStats(std::uint32_t id, std::size_t limit, std::size_t offset) override { lastOperation = "guild"; return {200, {{"guild_id", id}, {"limit", limit}, {"offset", offset}}}; }
-    Response RealmStatus() override { lastOperation = "realm"; return {200, {{"status", "online"}}}; }
+    Response RealmStatus(PlayerAudience audience) override { lastOperation = "realm"; lastAudience = audience; std::uint64_t characters = audience == PlayerAudience::Humans ? 2 : audience == PlayerAudience::Ai ? 1000 : 1002; std::uint64_t online = audience == PlayerAudience::Humans ? 1 : audience == PlayerAudience::Ai ? 50 : 51; return {200, {{"status", "online"}, {"audience", audience == PlayerAudience::Ai ? "ai" : audience == PlayerAudience::All ? "all" : "humans"}, {"characters", characters}, {"online_characters", online}}}; }
     Response OnlinePlayers(PlayerAudience audience, std::size_t limit, std::size_t offset) override { lastOperation = "online"; lastAudience = audience; return AudienceResponse(audience, limit, offset); }
     Response PlayerLeaderboard(std::string const& metric, PlayerAudience audience, std::size_t limit, std::size_t offset) override { lastOperation = "leaderboard"; lastAudience = audience; Response response = AudienceResponse(audience, limit, offset); response.body["metric"] = metric; return response; }
 private:
@@ -91,7 +91,22 @@ int main() {
     guild.query = {{"limit", "10"}, {"offset", "5"}}; response = service.Handle(guild);
     Expect(response.status == 200 && response.body["limit"] == 10, "guild route parses pagination");
     Request realm = Authorized("GET", "/v1/realm/status", "community-secret");
-    Expect(service.Handle(realm).status == 200 && backend.lastOperation == "realm", "realm route reaches backend");
+    response = service.Handle(realm);
+    Expect(response.status == 200 && backend.lastOperation == "realm"
+        && backend.lastAudience == PlayerAudience::Humans
+        && response.body["characters"] == 2, "realm status defaults to human totals");
+    Request aiRealm = realm; aiRealm.query["audience"] = "ai";
+    response = service.Handle(aiRealm);
+    Expect(response.status == 200 && backend.lastAudience == PlayerAudience::Ai
+        && response.body["characters"] == 1000
+        && response.body["online_characters"] == 50, "realm status returns AI totals");
+    Request allRealm = realm; allRealm.query["audience"] = "all";
+    response = service.Handle(allRealm);
+    Expect(response.status == 200 && backend.lastAudience == PlayerAudience::All
+        && response.body["characters"] == 1002
+        && response.body["online_characters"] == 51, "realm status returns combined totals");
+    Request invalidRealmAudience = realm; invalidRealmAudience.query["audience"] = "bots";
+    Expect(service.Handle(invalidRealmAudience).status == 400, "invalid realm audience is rejected");
     Request invalidPagination = leaderboard; invalidPagination.query["offset"] = "-1";
     Expect(service.Handle(invalidPagination).status == 400, "signed pagination is rejected");
     Request invalidType = create; invalidType.body = R"({"username":42})";

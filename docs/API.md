@@ -34,11 +34,11 @@ Creation reserves the normalized username before invoking AzerothCore. If the na
 
 - `GET /v1/characters/{id}` — public character profile statistics and guild summary.
 - `GET /v1/guilds/{id}?limit=25&offset=0` — guild summary and paginated roster.
-- `GET /v1/realm/status` — total and currently online active characters.
+- `GET /v1/realm/status?audience=humans` — created and currently online active-character totals for the selected audience.
 - `GET /v1/players/online?audience=humans&limit=25&offset=0` — currently online active characters.
 - `GET /v1/leaderboards/players?metric=level&audience=humans&limit=25&offset=0` — ranked active characters. Metrics: `level`, `playtime`, `honor`, `kills`.
 
-Player lists default to `audience=humans`, excluding Playerbots AI accounts. Use `audience=ai` for AI characters or `audience=all` for both. Every returned character or guild-roster entry includes an explicit `player_type` value of `human` or `ai`. Classification uses Playerbots' authoritative `playerbots_account_type` table; account types 1 and 2 are AI and accounts without a matching row are human.
+Realm status and player lists default to `audience=humans`, excluding Playerbots AI accounts. Use `audience=ai` for AI characters or `audience=all` for both. Realm status returns `characters` and `online_characters` counts for that audience. Every returned character or guild-roster entry includes an explicit `player_type` value of `human` or `ai`. Classification uses Playerbots' authoritative `playerbots_account_type` table; account types 1 and 2 are AI and accounts without a matching row are human.
 
 `limit` defaults to 25 and is capped by `MaxPageSize`; `offset` defaults to zero. Malformed or signed pagination values are rejected.
 
