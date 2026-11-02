@@ -39,6 +39,15 @@ std::string NormalizeUsername(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character) { return static_cast<char>(std::toupper(character)); });
     return value;
 }
+bool QueryAudience(Request const& request, PlayerAudience& audience) {
+    auto const found = request.query.find("audience");
+    std::string const value = found == request.query.end() ? "humans" : found->second;
+    if (value == "humans") audience = PlayerAudience::Humans;
+    else if (value == "ai") audience = PlayerAudience::Ai;
+    else if (value == "all") audience = PlayerAudience::All;
+    else return false;
+    return true;
+}
 }
 Response Error(int status, std::string const& code, std::string const& message) {
     return {status, {{"error", {{"code", code}, {"message", message}}}}};
@@ -114,18 +123,32 @@ Response ApiService::HandleAuthorized(Request const& request) {
         if (!IsAuthorized(request, Scope::CommunityRead)) return Error(401, "unauthorized", "A community-read bearer credential is required.");
         return _backend.RealmStatus();
     }
-    if (request.path == "/v1/leaderboards/players" && request.method == "GET") {
+    if (request.path == "/v1/players/online" && request.method == "GET") {
         if (!IsAuthorized(request, Scope::CommunityRead)) return Error(401, "unauthorized", "A community-read bearer credential is required.");
-        std::string metric = "level";
-        if (auto const found = request.query.find("metric"); found != request.query.end()) metric = found->second;
-        if (metric != "level" && metric != "playtime" && metric != "honor" && metric != "kills") return Error(400, "invalid_metric", "Metric must be level, playtime, honor, or kills.");
+        PlayerAudience audience = PlayerAudience::Humans;
+        if (!QueryAudience(request, audience)) return Error(400, "invalid_audience", "Audience must be humans, ai, or all.");
         std::size_t limit = 0;
         std::size_t offset = 0;
         if (!QuerySize(request, "limit", 25, _config.maxPageSize, limit)
             || !QuerySize(request, "offset", 0, std::numeric_limits<std::uint32_t>::max(), offset))
             return Error(400, "invalid_pagination", "Limit and offset must be unsigned integers.");
         if (limit == 0) return Error(400, "invalid_page_size", "Limit must be greater than zero.");
-        return _backend.PlayerLeaderboard(metric, limit, offset);
+        return _backend.OnlinePlayers(audience, limit, offset);
+    }
+    if (request.path == "/v1/leaderboards/players" && request.method == "GET") {
+        if (!IsAuthorized(request, Scope::CommunityRead)) return Error(401, "unauthorized", "A community-read bearer credential is required.");
+        std::string metric = "level";
+        if (auto const found = request.query.find("metric"); found != request.query.end()) metric = found->second;
+        if (metric != "level" && metric != "playtime" && metric != "honor" && metric != "kills") return Error(400, "invalid_metric", "Metric must be level, playtime, honor, or kills.");
+        PlayerAudience audience = PlayerAudience::Humans;
+        if (!QueryAudience(request, audience)) return Error(400, "invalid_audience", "Audience must be humans, ai, or all.");
+        std::size_t limit = 0;
+        std::size_t offset = 0;
+        if (!QuerySize(request, "limit", 25, _config.maxPageSize, limit)
+            || !QuerySize(request, "offset", 0, std::numeric_limits<std::uint32_t>::max(), offset))
+            return Error(400, "invalid_pagination", "Limit and offset must be unsigned integers.");
+        if (limit == 0) return Error(400, "invalid_page_size", "Limit must be greater than zero.");
+        return _backend.PlayerLeaderboard(metric, audience, limit, offset);
     }
     return Error(404, "not_found", "No API route matches the request.");
 }

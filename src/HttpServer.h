@@ -13,7 +13,7 @@
 #include <string>
 #include <thread>
 
-namespace httplib
+namespace ac_api_v1_httplib
 {
 class Server;
 struct Request;
@@ -44,13 +44,14 @@ public:
     bool IsRunning() const;
 
 private:
-    bool AllowRequest(httplib::Request const& request);
-    void Handle(httplib::Request const& request, httplib::Response& response);
-    void Write(Response const& source, httplib::Response& target) const;
+    bool AllowRequest(ac_api_v1_httplib::Request const& request);
+    void Handle(ac_api_v1_httplib::Request const& request,
+        ac_api_v1_httplib::Response& response);
+    void Write(Response const& source, ac_api_v1_httplib::Response& target) const;
 
     HttpServerConfig _config;
     ApiService& _service;
-    std::unique_ptr<httplib::Server> _server;
+    std::unique_ptr<ac_api_v1_httplib::Server> _server;
     std::thread _thread;
     std::atomic<bool> _running{false};
     std::atomic<bool> _failed{false};

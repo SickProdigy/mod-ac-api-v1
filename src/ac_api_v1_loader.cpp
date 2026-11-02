@@ -4,7 +4,7 @@ void AddAcApiV1Scripts();
 
 // AzerothCore derives this symbol from the module directory name, replacing
 // hyphens with underscores.
-void Addac_api_v1Scripts()
+void Addmod_ac_api_v1Scripts()
 {
     AddAcApiV1Scripts();
 }

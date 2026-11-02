@@ -575,7 +575,7 @@ using socket_t = int;
 /*
  * Declaration
  */
-namespace httplib {
+namespace ac_api_v1_httplib {
 
 namespace ws {
 class WebSocket;
@@ -4457,7 +4457,7 @@ public:
   void set_read_timeout(const std::chrono::duration<Rep, Period> &duration);
 
 private:
-  friend class httplib::Server;
+  friend class ac_api_v1_httplib::Server;
   friend class WebSocketClient;
 
   WebSocket(
@@ -5850,7 +5850,8 @@ inline bool parse_header(const char *beg, const char *end, T fn) {
 
     // RFC 9110 §5.5: header field values are opaque octets and MUST NOT be
     // percent-decoded by the recipient. Applications that need to interpret a
-    // value as a URI component should call httplib::decode_uri_component()
+    // value as a URI component should call
+    // ac_api_v1_httplib::decode_uri_component()
     // (or decode_path_component()) explicitly.
     fn(key, val);
 
@@ -8537,7 +8538,7 @@ inline ssize_t write_response_line(Stream &strm, int status) {
   std::string s = "HTTP/1.1 ";
   s += std::to_string(status);
   s += ' ';
-  s += httplib::status_message(status);
+  s += ac_api_v1_httplib::status_message(status);
   s += "\r\n";
   return strm.write(s.data(), s.size());
 }
@@ -22951,6 +22952,6 @@ inline void WebSocketClient::enable_system_ca(bool enabled) {
 
 // ----------------------------------------------------------------------------
 
-} // namespace httplib
+} // namespace ac_api_v1_httplib
 
 #endif // CPPHTTPLIB_HTTPLIB_H

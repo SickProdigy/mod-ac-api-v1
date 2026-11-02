@@ -29,11 +29,26 @@ private:
 
 class CommunityDatabasePool final : public ModuleDatabasePool
 {
+public:
+    void EscapeString(std::string& value)
+    {
+        std::string escaped(value.size() * 2 + 1, '\0');
+        std::size_t const length =
+            _escapeConnection->EscapeString(escaped.data(), value.data(), value.size());
+        escaped.resize(length);
+        value = std::move(escaped);
+    }
+
 protected:
     MySQLConnection* CreateConnection(MySQLConnectionInfo& info) override
     {
-        return new CommunityDatabaseConnection(info);
+        auto* connection = new CommunityDatabaseConnection(info);
+        _escapeConnection = connection;
+        return connection;
     }
+
+private:
+    MySQLConnection* _escapeConnection = nullptr;
 };
 
 namespace
@@ -83,11 +98,31 @@ std::string AccountResultCode(AccountOpResult result)
             return "backend_error";
     }
 }
+
+std::string AudienceName(PlayerAudience audience)
+{
+    if (audience == PlayerAudience::Ai)
+        return "ai";
+    if (audience == PlayerAudience::All)
+        return "all";
+    return "humans";
+}
+
+std::string AudiencePredicate(PlayerAudience audience)
+{
+    if (audience == PlayerAudience::Ai)
+        return "pat.account_id IS NOT NULL";
+    if (audience == PlayerAudience::All)
+        return "1 = 1";
+    return "pat.account_id IS NULL";
+}
 }
 
 AzerothCoreBackend::AzerothCoreBackend(std::string credentialDerivationSecret,
-    std::string communityDatabaseInfo, std::uint8_t communityDatabaseThreads)
+    std::string communityDatabaseInfo, std::string playerbotsDatabaseName,
+    std::uint8_t communityDatabaseThreads)
     : _credentialDerivationSecret(std::move(credentialDerivationSecret)),
+      _playerbotsDatabaseName(std::move(playerbotsDatabaseName)),
       _communityDatabase(std::make_unique<CommunityDatabasePool>())
 {
     if (!communityDatabaseInfo.empty())
@@ -110,7 +145,8 @@ bool AzerothCoreBackend::IsReady() const
 {
     return _communityDatabaseReady
         && static_cast<bool>(LoginDatabase.Query("SELECT COUNT(*) FROM ac_api_v1_idempotency"))
-        && static_cast<bool>(_communityDatabase->Query("SELECT 1"));
+        && static_cast<bool>(_communityDatabase->Query(
+            "SELECT COUNT(*) FROM `{}`.playerbots_account_type", _playerbotsDatabaseName));
 }
 
 Json AzerothCoreBackend::Capabilities() const
@@ -135,6 +171,8 @@ Json AzerothCoreBackend::Capabilities() const
             {"guild_stats", true},
             {"realm_status", true},
             {"separate_read_only_database", true},
+            {"player_audiences", {"humans", "ai", "all"}},
+            {"default_player_audience", "humans"},
             {"metrics", {"level", "playtime", "honor", "kills"}}
         }}
     };
@@ -385,11 +423,14 @@ Response AzerothCoreBackend::CharacterStats(std::uint32_t characterId)
     QueryResult result = _communityDatabase->Query(
         "SELECT c.guid, c.name, c.race, c.class, c.gender, c.level, c.totaltime, "
         "c.totalHonorPoints, c.totalKills, c.money, c.online, "
-        "COALESCE(g.guildid, 0), COALESCE(g.name, '') "
+        "COALESCE(g.guildid, 0), COALESCE(g.name, ''), "
+        "CASE WHEN pat.account_id IS NULL THEN 'human' ELSE 'ai' END "
         "FROM characters c "
         "LEFT JOIN guild_member gm ON gm.guid = c.guid "
         "LEFT JOIN guild g ON g.guildid = gm.guildid "
-        "WHERE c.guid = {} AND c.deleteDate IS NULL", characterId);
+        "LEFT JOIN `{}`.playerbots_account_type pat "
+        "ON pat.account_id = c.account AND pat.account_type IN (1, 2) "
+        "WHERE c.guid = {} AND c.deleteDate IS NULL", _playerbotsDatabaseName, characterId);
     if (!result)
         return Error(404, "character_not_found", "No active character exists with that ID.");
 
@@ -406,6 +447,7 @@ Response AzerothCoreBackend::CharacterStats(std::uint32_t characterId)
         {"kills", fields[8].Get<std::uint32_t>()},
         {"money_copper", fields[9].Get<std::uint32_t>()},
         {"online", fields[10].Get<std::uint8_t>() != 0},
+        {"player_type", fields[13].Get<std::string>()},
         {"guild", {
             {"id", fields[11].Get<std::uint32_t>()},
             {"name", fields[12].Get<std::string>()}
@@ -429,10 +471,14 @@ Response AzerothCoreBackend::GuildStats(std::uint32_t guildId, std::size_t limit
     Field* guildFields = guild->Fetch();
     Json members = Json::array();
     QueryResult memberRows = _communityDatabase->Query(
-        "SELECT c.guid, c.name, c.race, c.class, c.level, gm.rank "
+        "SELECT c.guid, c.name, c.race, c.class, c.level, gm.rank, "
+        "CASE WHEN pat.account_id IS NULL THEN 'human' ELSE 'ai' END "
         "FROM guild_member gm JOIN characters c ON c.guid = gm.guid "
+        "LEFT JOIN `{}`.playerbots_account_type pat "
+        "ON pat.account_id = c.account AND pat.account_type IN (1, 2) "
         "WHERE gm.guildid = {} AND c.deleteDate IS NULL "
-        "ORDER BY gm.rank ASC, c.name ASC LIMIT {} OFFSET {}", guildId, limit, offset);
+        "ORDER BY gm.rank ASC, c.name ASC LIMIT {} OFFSET {}",
+        _playerbotsDatabaseName, guildId, limit, offset);
     if (memberRows)
     {
         do
@@ -444,7 +490,8 @@ Response AzerothCoreBackend::GuildStats(std::uint32_t guildId, std::size_t limit
                 {"race", fields[2].Get<std::uint8_t>()},
                 {"class", fields[3].Get<std::uint8_t>()},
                 {"level", fields[4].Get<std::uint8_t>()},
-                {"rank", fields[5].Get<std::uint8_t>()}
+                {"rank", fields[5].Get<std::uint8_t>()},
+                {"player_type", fields[6].Get<std::string>()}
             });
         } while (memberRows->NextRow());
     }
@@ -479,28 +526,75 @@ Response AzerothCoreBackend::RealmStatus()
     }};
 }
 
-Response AzerothCoreBackend::PlayerLeaderboard(std::string const& metric, std::size_t limit,
+Response AzerothCoreBackend::OnlinePlayers(PlayerAudience audience, std::size_t limit,
     std::size_t offset)
+{
+    if (!_communityDatabaseReady)
+        return Error(503, "backend_unavailable", "The community database is unavailable.");
+
+    QueryResult result = _communityDatabase->Query(
+        "SELECT c.guid, c.name, c.race, c.class, c.level, "
+        "CASE WHEN pat.account_id IS NULL THEN 'human' ELSE 'ai' END "
+        "FROM characters c "
+        "LEFT JOIN `{}`.playerbots_account_type pat "
+        "ON pat.account_id = c.account AND pat.account_type IN (1, 2) "
+        "WHERE c.deleteDate IS NULL AND c.online <> 0 AND {} "
+        "ORDER BY c.name ASC, c.guid ASC LIMIT {} OFFSET {}",
+        _playerbotsDatabaseName, AudiencePredicate(audience), limit, offset);
+
+    Json entries = Json::array();
+    if (result)
+    {
+        do
+        {
+            Field* fields = result->Fetch();
+            entries.push_back({
+                {"character_id", fields[0].Get<std::uint32_t>()},
+                {"name", fields[1].Get<std::string>()},
+                {"race", fields[2].Get<std::uint8_t>()},
+                {"class", fields[3].Get<std::uint8_t>()},
+                {"level", fields[4].Get<std::uint8_t>()},
+                {"player_type", fields[5].Get<std::string>()}
+            });
+        } while (result->NextRow());
+    }
+
+    return {200, {
+        {"audience", AudienceName(audience)},
+        {"limit", limit},
+        {"offset", offset},
+        {"entries", std::move(entries)}
+    }};
+}
+
+Response AzerothCoreBackend::PlayerLeaderboard(std::string const& metric,
+    PlayerAudience audience, std::size_t limit, std::size_t offset)
 {
     if (!_communityDatabaseReady)
         return Error(503, "backend_unavailable", "The community database is unavailable.");
 
     std::string column;
     if (metric == "level")
-        column = "level";
+        column = "c.level";
     else if (metric == "playtime")
-        column = "totaltime";
+        column = "c.totaltime";
     else if (metric == "honor")
-        column = "totalHonorPoints";
+        column = "c.totalHonorPoints";
     else if (metric == "kills")
-        column = "totalKills";
+        column = "c.totalKills";
     else
         return Error(400, "invalid_metric", "The requested leaderboard metric is not supported.");
 
     QueryResult result = _communityDatabase->Query(
-        "SELECT guid, name, race, class, level, totaltime, totalHonorPoints, totalKills "
-        "FROM characters WHERE deleteDate IS NULL ORDER BY {} DESC, guid ASC LIMIT {} OFFSET {}",
-        column, limit, offset);
+        "SELECT c.guid, c.name, c.race, c.class, c.level, c.totaltime, "
+        "c.totalHonorPoints, c.totalKills, "
+        "CASE WHEN pat.account_id IS NULL THEN 'human' ELSE 'ai' END "
+        "FROM characters c "
+        "LEFT JOIN `{}`.playerbots_account_type pat "
+        "ON pat.account_id = c.account AND pat.account_type IN (1, 2) "
+        "WHERE c.deleteDate IS NULL AND {} "
+        "ORDER BY {} DESC, c.guid ASC LIMIT {} OFFSET {}",
+        _playerbotsDatabaseName, AudiencePredicate(audience), column, limit, offset);
 
     Json entries = Json::array();
     if (result)
@@ -516,13 +610,15 @@ Response AzerothCoreBackend::PlayerLeaderboard(std::string const& metric, std::s
                 {"level", fields[4].Get<std::uint8_t>()},
                 {"playtime_seconds", fields[5].Get<std::uint32_t>()},
                 {"honor", fields[6].Get<std::uint32_t>()},
-                {"kills", fields[7].Get<std::uint32_t>()}
+                {"kills", fields[7].Get<std::uint32_t>()},
+                {"player_type", fields[8].Get<std::string>()}
             });
         } while (result->NextRow());
     }
 
     return {200, {
         {"metric", metric},
+        {"audience", AudienceName(audience)},
         {"limit", limit},
         {"offset", offset},
         {"entries", std::move(entries)}

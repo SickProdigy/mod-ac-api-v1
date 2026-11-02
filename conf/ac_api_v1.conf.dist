@@ -32,6 +32,9 @@ AcApiV1.CredentialDerivationSecret = ""
 # Required connection string for a SELECT-only MySQL user on acore_characters.
 # Format: host;port;user;password;database
 AcApiV1.CommunityDatabaseInfo = ""
+# Schema containing Playerbots' authoritative playerbots_account_type table.
+# The CommunityDatabaseInfo user also requires SELECT on this one table.
+AcApiV1.PlayerbotsDatabaseName = "acore_playerbots"
 AcApiV1.CommunityDatabaseThreads = 2
 
 AcApiV1.WorkerThreads = 4

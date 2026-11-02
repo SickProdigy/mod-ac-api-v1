@@ -6,7 +6,7 @@ A private HTTP API module for [AzerothCore](https://www.azerothcore.org/) that p
 
 - Version and capability discovery.
 - Inspect, idempotently create, reset, suspend, and restore API-managed non-GM accounts.
-- Player leaderboards by level, playtime, honor, or kills.
+- Human-by-default player leaderboards and online-player lists, with explicit AI or mixed audiences.
 - Character, guild roster, and realm population endpoints.
 - Separate bearer credentials for account writes and community reads.
 - Persistent idempotency, managed-account ownership, managed-suspension ownership, and secret-free audit events.
@@ -28,6 +28,7 @@ Copy the installed module configuration template to its active `.conf` form and 
 - three distinct, random secrets of at least 32 characters;
 - a loopback, RFC1918, CGNAT, or IPv6 unique-local bind address;
 - `CommunityDatabaseInfo` for a `SELECT`-only user on `acore_characters`;
+- `PlayerbotsDatabaseName` for the schema containing `playerbots_account_type`, with that same user granted `SELECT` on this table;
 - `AcApiV1.Enable = 1` after the database grants and private network path are ready.
 
 See [SECURITY.md](SECURITY.md) for the recommended grants and network boundary. See [docs/API.md](docs/API.md) for the endpoint contract and failure semantics.

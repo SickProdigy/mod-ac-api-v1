@@ -92,7 +92,8 @@ public:
     Response CharacterStats(std::uint32_t) override { return {200, Json::object()}; }
     Response GuildStats(std::uint32_t, std::size_t, std::size_t) override { return {200, Json::object()}; }
     Response RealmStatus() override { return {200, Json::object()}; }
-    Response PlayerLeaderboard(std::string const&, std::size_t, std::size_t) override { return {200, Json::object()}; }
+    Response OnlinePlayers(PlayerAudience, std::size_t, std::size_t) override { return {200, Json::object()}; }
+    Response PlayerLeaderboard(std::string const&, PlayerAudience, std::size_t, std::size_t) override { return {200, Json::object()}; }
 
     void AddUnmanaged(std::string username)
     {

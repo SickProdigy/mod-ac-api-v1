@@ -35,7 +35,8 @@ public:
     Response CharacterStats(std::uint32_t) override { return {200, Json::object()}; }
     Response GuildStats(std::uint32_t, std::size_t, std::size_t) override { return {200, Json::object()}; }
     Response RealmStatus() override { return {200, Json::object()}; }
-    Response PlayerLeaderboard(std::string const&, std::size_t, std::size_t) override { return {200, Json::object()}; }
+    Response OnlinePlayers(PlayerAudience, std::size_t, std::size_t) override { return {200, Json::object()}; }
+    Response PlayerLeaderboard(std::string const&, PlayerAudience, std::size_t, std::size_t) override { return {200, Json::object()}; }
 };
 
 int failures = 0;
@@ -65,7 +66,7 @@ int main()
     HttpServer server(serverConfig, service);
     Expect(server.Start(), "listener starts on loopback");
 
-    httplib::Client client("127.0.0.1", serverConfig.port);
+    ac_api_v1_httplib::Client client("127.0.0.1", serverConfig.port);
     auto health = client.Get("/healthz");
     Expect(health && health->status == 200, "health route works over HTTP");
 
@@ -74,7 +75,8 @@ int main()
         && unauthorized->get_header_value("WWW-Authenticate") == "Bearer",
         "HTTP authorization failure includes challenge");
 
-    httplib::Headers headers = {{"Authorization", "Bearer " + serviceConfig.accountToken}};
+    ac_api_v1_httplib::Headers headers = {
+        {"Authorization", "Bearer " + serviceConfig.accountToken}};
     backend.throwCapabilities = true;
     auto fault = client.Get("/v1/capabilities", headers);
     Expect(fault && fault->status == 503
@@ -95,7 +97,7 @@ int main()
     HttpServer timeoutServer(serverConfig, service);
     Expect(timeoutServer.Start(), "timeout test listener starts");
     backend.delayCapabilities = true;
-    httplib::Client timeoutClient("127.0.0.1", serverConfig.port);
+    ac_api_v1_httplib::Client timeoutClient("127.0.0.1", serverConfig.port);
     timeoutClient.set_read_timeout(0, 50000);
     auto timedOut = timeoutClient.Get("/v1/capabilities", headers);
     Expect(!timedOut, "caller observes a bounded timeout for a stalled backend");

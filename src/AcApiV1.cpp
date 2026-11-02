@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <arpa/inet.h>
+#include <cctype>
 #include <memory>
 #include <string>
 
@@ -42,6 +43,14 @@ bool IsPrivateBind(std::string const& address)
     return false;
 }
 
+bool IsDatabaseIdentifier(std::string const& value)
+{
+    return !value.empty() && std::all_of(value.begin(), value.end(), [](unsigned char character)
+    {
+        return std::isalnum(character) || character == '_';
+    });
+}
+
 void StopServer()
 {
     if (ServerInstance)
@@ -70,10 +79,13 @@ bool StartServer()
         sConfigMgr->GetOption<std::string>("AcApiV1.CredentialDerivationSecret", "");
     std::string const communityDatabaseInfo =
         sConfigMgr->GetOption<std::string>("AcApiV1.CommunityDatabaseInfo", "");
+    std::string const playerbotsDatabaseName =
+        sConfigMgr->GetOption<std::string>("AcApiV1.PlayerbotsDatabaseName", "acore_playerbots");
     if (serviceConfig.accountToken.size() < 32 || serviceConfig.communityToken.size() < 32
-        || derivationSecret.size() < 32 || communityDatabaseInfo.empty())
+        || derivationSecret.size() < 32 || communityDatabaseInfo.empty()
+        || !IsDatabaseIdentifier(playerbotsDatabaseName))
     {
-        LOG_ERROR("module", "ac-api-v1 refused to start: all API credentials must be at least 32 characters and CommunityDatabaseInfo must be set");
+        LOG_ERROR("module", "ac-api-v1 refused to start: all API credentials must be at least 32 characters, CommunityDatabaseInfo must be set, and PlayerbotsDatabaseName must be a valid database identifier");
         return false;
     }
     if (serviceConfig.accountToken == serviceConfig.communityToken)
@@ -111,7 +123,8 @@ bool StartServer()
     std::uint8_t const communityDatabaseThreads = static_cast<std::uint8_t>(std::clamp(
         sConfigMgr->GetOption<int32>("AcApiV1.CommunityDatabaseThreads", 2), 1, 8));
     BackendInstance = std::make_unique<AzerothCoreBackend>(
-        derivationSecret, communityDatabaseInfo, communityDatabaseThreads);
+        derivationSecret, communityDatabaseInfo, playerbotsDatabaseName,
+        communityDatabaseThreads);
     ServiceInstance = std::make_unique<ApiService>(serviceConfig, *BackendInstance);
     ServerInstance = std::make_unique<HttpServer>(httpConfig, *ServiceInstance);
     if (!ServerInstance->Start())

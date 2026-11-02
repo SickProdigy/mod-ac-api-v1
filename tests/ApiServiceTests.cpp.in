@@ -6,7 +6,7 @@ using namespace AcApiV1;
 namespace {
 class FakeBackend final : public Backend {
 public:
-    bool ready = true; std::string lastOperation; std::string lastUsername; std::string lastPassword; std::string lastKey; std::uint32_t lastAccountId = 0;
+    bool ready = true; std::string lastOperation; std::string lastUsername; std::string lastPassword; std::string lastKey; std::uint32_t lastAccountId = 0; PlayerAudience lastAudience = PlayerAudience::All;
     bool IsReady() const override { return ready; }
     Json Capabilities() const override { return {{"api_version", "v1"}}; }
     Response InspectAccount(std::string const& username) override { lastOperation = "inspect"; lastUsername = username; return {200, {{"username", username}}}; }
@@ -17,7 +17,10 @@ public:
     Response CharacterStats(std::uint32_t id) override { lastOperation = "character"; return {200, {{"character_id", id}}}; }
     Response GuildStats(std::uint32_t id, std::size_t limit, std::size_t offset) override { lastOperation = "guild"; return {200, {{"guild_id", id}, {"limit", limit}, {"offset", offset}}}; }
     Response RealmStatus() override { lastOperation = "realm"; return {200, {{"status", "online"}}}; }
-    Response PlayerLeaderboard(std::string const& metric, std::size_t limit, std::size_t offset) override { lastOperation = "leaderboard"; return {200, {{"metric", metric}, {"limit", limit}, {"offset", offset}}}; }
+    Response OnlinePlayers(PlayerAudience audience, std::size_t limit, std::size_t offset) override { lastOperation = "online"; lastAudience = audience; return AudienceResponse(audience, limit, offset); }
+    Response PlayerLeaderboard(std::string const& metric, PlayerAudience audience, std::size_t limit, std::size_t offset) override { lastOperation = "leaderboard"; lastAudience = audience; Response response = AudienceResponse(audience, limit, offset); response.body["metric"] = metric; return response; }
+private:
+    static Response AudienceResponse(PlayerAudience audience, std::size_t limit, std::size_t offset) { Json entries = Json::array(); if (audience != PlayerAudience::Ai) entries.push_back({{"name", "Human"}, {"player_type", "human"}}); if (audience != PlayerAudience::Humans) entries.push_back({{"name", "Bot"}, {"player_type", "ai"}}); return {200, {{"audience", audience == PlayerAudience::Ai ? "ai" : audience == PlayerAudience::All ? "all" : "humans"}, {"limit", limit}, {"offset", offset}, {"entries", std::move(entries)}}}; }
 };
 int failures = 0;
 void Expect(bool condition, std::string const& message) { if (!condition) { std::cerr << "FAIL: " << message << '\n'; ++failures; } }
@@ -55,6 +58,25 @@ int main() {
     Request leaderboard = Authorized("GET", "/v1/leaderboards/players", "community-secret");
     leaderboard.query = {{"metric", "playtime"}, {"limit", "500"}, {"offset", "10"}}; response = service.Handle(leaderboard);
     Expect(response.status == 200 && response.body["limit"] == 50 && response.body["offset"] == 10, "leaderboard pagination is bounded");
+    Expect(backend.lastAudience == PlayerAudience::Humans, "leaderboard defaults to human players");
+    Request aiLeaderboard = leaderboard; aiLeaderboard.query["audience"] = "ai";
+    response = service.Handle(aiLeaderboard);
+    Expect(response.status == 200 && backend.lastAudience == PlayerAudience::Ai, "AI leaderboard audience reaches backend");
+    Request allLeaderboard = leaderboard; allLeaderboard.query["audience"] = "all";
+    response = service.Handle(allLeaderboard);
+    Expect(response.status == 200 && backend.lastAudience == PlayerAudience::All
+        && response.body["entries"].size() == 2
+        && response.body["entries"][0]["player_type"] == "human"
+        && response.body["entries"][1]["player_type"] == "ai", "mixed leaderboard returns explicit player types");
+    Request invalidAudience = leaderboard; invalidAudience.query["audience"] = "bots";
+    Expect(service.Handle(invalidAudience).status == 400, "invalid leaderboard audience is rejected");
+    Request onlinePlayers = Authorized("GET", "/v1/players/online", "community-secret");
+    response = service.Handle(onlinePlayers);
+    Expect(response.status == 200 && backend.lastOperation == "online"
+        && backend.lastAudience == PlayerAudience::Humans, "online players default to humans");
+    onlinePlayers.query["audience"] = "ai";
+    response = service.Handle(onlinePlayers);
+    Expect(response.status == 200 && backend.lastAudience == PlayerAudience::Ai, "AI online audience reaches backend");
     Request wrongScope = Authorized("GET", "/v1/leaderboards/players", "account-secret");
     Expect(service.Handle(wrongScope).status == 401, "account token cannot read community data");
     Request suspend = Authorized("POST", "/v1/accounts/42/suspend", "account-secret");

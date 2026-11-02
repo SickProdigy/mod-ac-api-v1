@@ -10,6 +10,7 @@ using Json = nlohmann::json;
 struct Request { std::string method; std::string path; std::map<std::string, std::string> headers; std::map<std::string, std::string> query; std::string body; };
 struct Response { int status = 500; Json body; };
 struct ServiceConfig { std::string accountToken; std::string communityToken; std::size_t maxBodyBytes = 16384; std::size_t maxPageSize = 100; };
+enum class PlayerAudience { Humans, Ai, All };
 class Backend {
 public:
     virtual ~Backend() = default;
@@ -23,7 +24,9 @@ public:
     virtual Response CharacterStats(std::uint32_t characterId) = 0;
     virtual Response GuildStats(std::uint32_t guildId, std::size_t limit, std::size_t offset) = 0;
     virtual Response RealmStatus() = 0;
-    virtual Response PlayerLeaderboard(std::string const& metric, std::size_t limit, std::size_t offset) = 0;
+    virtual Response OnlinePlayers(PlayerAudience audience, std::size_t limit, std::size_t offset) = 0;
+    virtual Response PlayerLeaderboard(std::string const& metric, PlayerAudience audience,
+        std::size_t limit, std::size_t offset) = 0;
 };
 class ApiService {
 public:

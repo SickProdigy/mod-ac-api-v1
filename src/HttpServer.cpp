@@ -26,7 +26,8 @@ std::string Lower(std::string value)
 }
 
 HttpServer::HttpServer(HttpServerConfig config, ApiService& service)
-    : _config(std::move(config)), _service(service), _server(std::make_unique<httplib::Server>())
+    : _config(std::move(config)), _service(service),
+      _server(std::make_unique<ac_api_v1_httplib::Server>())
 {
     _server->set_payload_max_length(_config.maxBodyBytes);
     _server->set_read_timeout(_config.timeoutSeconds);
@@ -35,7 +36,7 @@ HttpServer::HttpServer(HttpServerConfig config, ApiService& service)
     _server->set_keep_alive_max_count(20);
     _server->new_task_queue = [threads = _config.workerThreads, queued = _config.maxQueuedRequests]
     {
-        return new httplib::ThreadPool(static_cast<std::size_t>(threads),
+        return new ac_api_v1_httplib::ThreadPool(static_cast<std::size_t>(threads),
             static_cast<std::size_t>(threads), static_cast<std::size_t>(queued));
     };
 
@@ -44,18 +45,19 @@ HttpServer::HttpServer(HttpServerConfig config, ApiService& service)
         _running = true;
     });
 
-    _server->set_exception_handler([this](httplib::Request const&, httplib::Response& response,
+    _server->set_exception_handler([this](ac_api_v1_httplib::Request const&,
+                                       ac_api_v1_httplib::Response& response,
                                        std::exception_ptr)
     {
         Write(Error(503, "backend_unavailable",
             "The request could not be completed by the AzerothCore backend."), response);
     });
 
-    _server->set_pre_routing_handler([this](httplib::Request const& request,
-                                         httplib::Response& response)
+    _server->set_pre_routing_handler([this](ac_api_v1_httplib::Request const& request,
+                                         ac_api_v1_httplib::Response& response)
     {
         Handle(request, response);
-        return httplib::Server::HandlerResponse::Handled;
+        return ac_api_v1_httplib::Server::HandlerResponse::Handled;
     });
 }
 
@@ -103,7 +105,7 @@ bool HttpServer::IsRunning() const
     return _running;
 }
 
-bool HttpServer::AllowRequest(httplib::Request const& request)
+bool HttpServer::AllowRequest(ac_api_v1_httplib::Request const& request)
 {
     if (request.path == "/healthz" || request.path == "/readyz")
         return true;
@@ -137,7 +139,8 @@ bool HttpServer::AllowRequest(httplib::Request const& request)
     return true;
 }
 
-void HttpServer::Handle(httplib::Request const& source, httplib::Response& target)
+void HttpServer::Handle(ac_api_v1_httplib::Request const& source,
+    ac_api_v1_httplib::Response& target)
 {
     if (!AllowRequest(source))
     {
@@ -158,7 +161,7 @@ void HttpServer::Handle(httplib::Request const& source, httplib::Response& targe
     Write(_service.Handle(request), target);
 }
 
-void HttpServer::Write(Response const& source, httplib::Response& target) const
+void HttpServer::Write(Response const& source, ac_api_v1_httplib::Response& target) const
 {
     target.status = source.status;
     target.set_header("Cache-Control", "no-store");

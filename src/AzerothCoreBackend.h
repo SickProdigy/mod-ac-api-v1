@@ -14,7 +14,8 @@ class AzerothCoreBackend final : public Backend
 {
 public:
     AzerothCoreBackend(std::string credentialDerivationSecret,
-        std::string communityDatabaseInfo, std::uint8_t communityDatabaseThreads);
+        std::string communityDatabaseInfo, std::string playerbotsDatabaseName,
+        std::uint8_t communityDatabaseThreads);
     ~AzerothCoreBackend() override;
     void KeepAlive();
 
@@ -29,8 +30,10 @@ public:
     Response CharacterStats(std::uint32_t characterId) override;
     Response GuildStats(std::uint32_t guildId, std::size_t limit, std::size_t offset) override;
     Response RealmStatus() override;
-    Response PlayerLeaderboard(std::string const& metric, std::size_t limit,
+    Response OnlinePlayers(PlayerAudience audience, std::size_t limit,
         std::size_t offset) override;
+    Response PlayerLeaderboard(std::string const& metric, PlayerAudience audience,
+        std::size_t limit, std::size_t offset) override;
 
 private:
     struct IdempotencyRecord
@@ -71,6 +74,7 @@ private:
     Response ValidateManagedAccount(std::uint32_t accountId, std::string& username) const;
 
     std::string _credentialDerivationSecret;
+    std::string _playerbotsDatabaseName;
     std::unique_ptr<CommunityDatabasePool> _communityDatabase;
     bool _communityDatabaseReady = false;
 };

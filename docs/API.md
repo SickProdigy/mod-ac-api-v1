@@ -35,16 +35,19 @@ Creation reserves the normalized username before invoking AzerothCore. If the na
 - `GET /v1/characters/{id}` — public character profile statistics and guild summary.
 - `GET /v1/guilds/{id}?limit=25&offset=0` — guild summary and paginated roster.
 - `GET /v1/realm/status` — total and currently online active characters.
-- `GET /v1/leaderboards/players?metric=level&limit=25&offset=0` — ranked active characters. Metrics: `level`, `playtime`, `honor`, `kills`.
+- `GET /v1/players/online?audience=humans&limit=25&offset=0` — currently online active characters.
+- `GET /v1/leaderboards/players?metric=level&audience=humans&limit=25&offset=0` — ranked active characters. Metrics: `level`, `playtime`, `honor`, `kills`.
+
+Player lists default to `audience=humans`, excluding Playerbots AI accounts. Use `audience=ai` for AI characters or `audience=all` for both. Every returned character or guild-roster entry includes an explicit `player_type` value of `human` or `ai`. Classification uses Playerbots' authoritative `playerbots_account_type` table; account types 1 and 2 are AI and accounts without a matching row are human.
 
 `limit` defaults to 25 and is capped by `MaxPageSize`; `offset` defaults to zero. Malformed or signed pagination values are rejected.
 
 ## Stable failure codes
 
-Common codes include `unauthorized`, `not_found`, `request_too_large`, `rate_limited`, `invalid_json`, `invalid_request`, `invalid_username`, `invalid_password`, `invalid_account_id`, `invalid_character_id`, `invalid_guild_id`, `invalid_idempotency_key`, `invalid_pagination`, `invalid_metric`, `account_not_found`, `character_not_found`, `guild_not_found`, `account_collision`, `idempotency_conflict`, `unmanaged_account`, `privileged_account`, `mapping_conflict`, `suspension_conflict`, `not_api_suspended`, `partial_success`, `backend_error`, and `backend_unavailable`.
+Common codes include `unauthorized`, `not_found`, `request_too_large`, `rate_limited`, `invalid_json`, `invalid_request`, `invalid_username`, `invalid_password`, `invalid_account_id`, `invalid_character_id`, `invalid_guild_id`, `invalid_idempotency_key`, `invalid_pagination`, `invalid_metric`, `invalid_audience`, `account_not_found`, `character_not_found`, `guild_not_found`, `account_collision`, `idempotency_conflict`, `unmanaged_account`, `privileged_account`, `mapping_conflict`, `suspension_conflict`, `not_api_suspended`, `partial_success`, `backend_error`, and `backend_unavailable`.
 
 Database and native exception text is never placed in an API response. Unsupported routes and operations return `not_found`. Native suspend/restore support is advertised in capabilities rather than silently emulated.
 
 ## Limits
 
-The listener enforces configured body size, URI/header limits, worker and queue bounds, socket read/write/keep-alive timeouts, maximum page size, and per-client request rate. Database connection behavior is additionally bounded by the AzerothCore/MySQL connection settings in `CommunityDatabaseInfo`.
+The listener enforces configured body size, URI/header limits, worker and queue bounds, socket read/write/keep-alive timeouts, maximum page size, and per-client request rate. Database connection behavior is additionally bounded by the AzerothCore/MySQL connection settings in `CommunityDatabaseInfo`. Its user requires `SELECT` on the character database and on `<PlayerbotsDatabaseName>.playerbots_account_type` only.
