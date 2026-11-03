@@ -7,6 +7,7 @@ A private HTTP API module for [AzerothCore](https://www.azerothcore.org/) that p
 - Version and capability discovery.
 - Inspect, idempotently create, reset, suspend, and restore API-managed non-GM accounts.
 - Human-by-default player leaderboards and online-player lists, with explicit AI or mixed audiences.
+- Exact character-name lookup plus level, playtime, honor, kills, gold, and quest leaderboards.
 - Character, guild roster, and realm population endpoints.
 - Separate bearer credentials for account writes and community reads.
 - Persistent idempotency, managed-account ownership, managed-suspension ownership, and secret-free audit events.

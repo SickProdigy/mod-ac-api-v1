@@ -171,9 +171,10 @@ Json AzerothCoreBackend::Capabilities() const
             {"guild_stats", true},
             {"realm_status", true},
             {"separate_read_only_database", true},
+            {"character_lookup_by_name", true},
             {"player_audiences", {"humans", "ai", "all"}},
             {"default_player_audience", "humans"},
-            {"metrics", {"level", "playtime", "honor", "kills"}}
+            {"metrics", {"level", "playtime", "honor", "kills", "gold", "quests"}}
         }}
     };
 }
@@ -423,6 +424,8 @@ Response AzerothCoreBackend::CharacterStats(std::uint32_t characterId)
     QueryResult result = _communityDatabase->Query(
         "SELECT c.guid, c.name, c.race, c.class, c.gender, c.level, c.totaltime, "
         "c.totalHonorPoints, c.totalKills, c.money, c.online, "
+        "(SELECT COUNT(*) FROM character_queststatus_rewarded q "
+        "WHERE q.guid = c.guid AND q.active = 1), "
         "COALESCE(g.guildid, 0), COALESCE(g.name, ''), "
         "CASE WHEN pat.account_id IS NULL THEN 'human' ELSE 'ai' END "
         "FROM characters c "
@@ -447,12 +450,27 @@ Response AzerothCoreBackend::CharacterStats(std::uint32_t characterId)
         {"kills", fields[8].Get<std::uint32_t>()},
         {"money_copper", fields[9].Get<std::uint32_t>()},
         {"online", fields[10].Get<std::uint8_t>() != 0},
-        {"player_type", fields[13].Get<std::string>()},
+        {"quests", fields[11].Get<std::uint32_t>()},
+        {"player_type", fields[14].Get<std::string>()},
         {"guild", {
-            {"id", fields[11].Get<std::uint32_t>()},
-            {"name", fields[12].Get<std::string>()}
+            {"id", fields[12].Get<std::uint32_t>()},
+            {"name", fields[13].Get<std::string>()}
         }}
     }};
+}
+
+Response AzerothCoreBackend::CharacterStatsByName(std::string const& name)
+{
+    if (!_communityDatabaseReady)
+        return Error(503, "backend_unavailable", "The community database is unavailable.");
+
+    std::string escaped = name;
+    _communityDatabase->EscapeString(escaped);
+    QueryResult result = _communityDatabase->Query(
+        "SELECT guid FROM characters WHERE name = '{}' AND deleteDate IS NULL LIMIT 1", escaped);
+    if (!result)
+        return Error(404, "character_not_found", "No active character exists with that name.");
+    return CharacterStats(result->Fetch()[0].Get<std::uint32_t>());
 }
 
 Response AzerothCoreBackend::GuildStats(std::uint32_t guildId, std::size_t limit,
@@ -587,12 +605,18 @@ Response AzerothCoreBackend::PlayerLeaderboard(std::string const& metric,
         column = "c.totalHonorPoints";
     else if (metric == "kills")
         column = "c.totalKills";
+    else if (metric == "gold")
+        column = "c.money";
+    else if (metric == "quests")
+        column = "quest_count";
     else
         return Error(400, "invalid_metric", "The requested leaderboard metric is not supported.");
 
     QueryResult result = _communityDatabase->Query(
         "SELECT c.guid, c.name, c.race, c.class, c.level, c.totaltime, "
-        "c.totalHonorPoints, c.totalKills, "
+        "c.totalHonorPoints, c.totalKills, c.money, "
+        "(SELECT COUNT(*) FROM character_queststatus_rewarded q "
+        "WHERE q.guid = c.guid AND q.active = 1) AS quest_count, "
         "CASE WHEN pat.account_id IS NULL THEN 'human' ELSE 'ai' END "
         "FROM characters c "
         "LEFT JOIN `{}`.playerbots_account_type pat "
@@ -616,7 +640,9 @@ Response AzerothCoreBackend::PlayerLeaderboard(std::string const& metric,
                 {"playtime_seconds", fields[5].Get<std::uint32_t>()},
                 {"honor", fields[6].Get<std::uint32_t>()},
                 {"kills", fields[7].Get<std::uint32_t>()},
-                {"player_type", fields[8].Get<std::string>()}
+                {"money_copper", fields[8].Get<std::uint32_t>()},
+                {"quests", fields[9].Get<std::uint32_t>()},
+                {"player_type", fields[10].Get<std::string>()}
             });
         } while (result->NextRow());
     }

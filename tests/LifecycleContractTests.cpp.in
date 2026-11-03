@@ -89,6 +89,7 @@ public:
         return CompleteMutation(key, "restore", id, "active");
     }
 
+    Response CharacterStatsByName(std::string const&) override { return {200, Json::object()}; }
     Response CharacterStats(std::uint32_t) override { return {200, Json::object()}; }
     Response GuildStats(std::uint32_t, std::size_t, std::size_t) override { return {200, Json::object()}; }
     Response RealmStatus(PlayerAudience) override { return {200, Json::object()}; }

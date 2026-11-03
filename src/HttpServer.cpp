@@ -53,12 +53,17 @@ HttpServer::HttpServer(HttpServerConfig config, ApiService& service)
             "The request could not be completed by the AzerothCore backend."), response);
     });
 
-    _server->set_pre_routing_handler([this](ac_api_v1_httplib::Request const& request,
-                                         ac_api_v1_httplib::Response& response)
+    auto handler = [this](ac_api_v1_httplib::Request const& request,
+                       ac_api_v1_httplib::Response& response)
     {
         Handle(request, response);
-        return ac_api_v1_httplib::Server::HandlerResponse::Handled;
-    });
+    };
+    _server->Get(R"(/.*)", handler);
+    _server->Post(R"(/.*)", handler);
+    _server->Put(R"(/.*)", handler);
+    _server->Patch(R"(/.*)", handler);
+    _server->Delete(R"(/.*)", handler);
+    _server->Options(R"(/.*)", handler);
 }
 
 HttpServer::~HttpServer()

@@ -18,6 +18,7 @@ class ListenerBackend final : public Backend
 public:
     bool throwCapabilities = false;
     bool delayCapabilities = false;
+    std::string createdUsername;
     bool IsReady() const override { return true; }
     Json Capabilities() const override
     {
@@ -28,10 +29,11 @@ public:
         return {{"api_version", "v1"}};
     }
     Response InspectAccount(std::string const&) override { return {200, Json::object()}; }
-    Response CreateAccount(std::string const&, std::string const&, std::string const&) override { return {201, Json::object()}; }
+    Response CreateAccount(std::string const& username, std::string const&, std::string const&) override { createdUsername = username; return {201, {{"username", username}}}; }
     Response ResetPassword(std::uint32_t, std::string const&) override { return {200, Json::object()}; }
     Response SuspendAccount(std::uint32_t, std::string const&) override { return {200, Json::object()}; }
     Response RestoreAccount(std::uint32_t, std::string const&) override { return {200, Json::object()}; }
+    Response CharacterStatsByName(std::string const&) override { return {200, Json::object()}; }
     Response CharacterStats(std::uint32_t) override { return {200, Json::object()}; }
     Response GuildStats(std::uint32_t, std::size_t, std::size_t) override { return {200, Json::object()}; }
     Response RealmStatus(PlayerAudience) override { return {200, Json::object()}; }
@@ -96,6 +98,18 @@ int main()
     serverConfig.requestsPerMinute = 100;
     HttpServer timeoutServer(serverConfig, service);
     Expect(timeoutServer.Start(), "timeout test listener starts");
+    ac_api_v1_httplib::Headers writeHeaders = {
+        {"Authorization", "Bearer " + serviceConfig.accountToken},
+        {"Idempotency-Key", "listener-test-key-1234"}};
+    ac_api_v1_httplib::Client writeClient("127.0.0.1", serverConfig.port);
+    auto created = writeClient.Post("/v1/accounts", writeHeaders,
+        R"({"username":"listeneruser","password":"validPass9!"})", "application/json");
+    Expect(created && created->status == 201 && backend.createdUsername == "LISTENERUSER",
+        "POST JSON body reaches the API backend over HTTP");
+    auto malformed = writeClient.Post("/v1/accounts", writeHeaders, "{", "application/json");
+    Expect(malformed && malformed->status == 400
+        && malformed->body.find("invalid_json") != std::string::npos,
+        "malformed POST JSON returns the stable listener error");
     backend.delayCapabilities = true;
     ac_api_v1_httplib::Client timeoutClient("127.0.0.1", serverConfig.port);
     timeoutClient.set_read_timeout(0, 50000);

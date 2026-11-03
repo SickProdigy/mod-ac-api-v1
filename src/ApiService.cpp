@@ -99,6 +99,15 @@ Response ApiService::HandleAuthorized(Request const& request) {
         if (!ParseUnsigned(remainder.substr(0, separator), accountId) || accountId == 0) return Error(400, "invalid_account_id", "Account ID must be a positive integer.");
         return ParseAccountWrite(request, remainder.substr(separator + 1), accountId);
     }
+    std::string const characterNamePrefix = "/v1/characters/by-name/";
+    if (request.method == "GET" && request.path.rfind(characterNamePrefix, 0) == 0) {
+        if (!IsAuthorized(request, Scope::CommunityRead)) return Error(401, "unauthorized", "A community-read bearer credential is required.");
+        std::string const name = request.path.substr(characterNamePrefix.size());
+        if (name.empty() || name.size() > 12
+            || !std::all_of(name.begin(), name.end(), [](unsigned char character) { return std::isalpha(character); }))
+            return Error(400, "invalid_character_name", "Character name must contain 1-12 ASCII letters.");
+        return _backend.CharacterStatsByName(name);
+    }
     std::string const characterPrefix = "/v1/characters/";
     if (request.method == "GET" && request.path.rfind(characterPrefix, 0) == 0) {
         if (!IsAuthorized(request, Scope::CommunityRead)) return Error(401, "unauthorized", "A community-read bearer credential is required.");
@@ -141,7 +150,9 @@ Response ApiService::HandleAuthorized(Request const& request) {
         if (!IsAuthorized(request, Scope::CommunityRead)) return Error(401, "unauthorized", "A community-read bearer credential is required.");
         std::string metric = "level";
         if (auto const found = request.query.find("metric"); found != request.query.end()) metric = found->second;
-        if (metric != "level" && metric != "playtime" && metric != "honor" && metric != "kills") return Error(400, "invalid_metric", "Metric must be level, playtime, honor, or kills.");
+        if (metric != "level" && metric != "playtime" && metric != "honor" && metric != "kills"
+            && metric != "gold" && metric != "quests")
+            return Error(400, "invalid_metric", "Metric must be level, playtime, honor, kills, gold, or quests.");
         PlayerAudience audience = PlayerAudience::Humans;
         if (!QueryAudience(request, audience)) return Error(400, "invalid_audience", "Audience must be humans, ai, or all.");
         std::size_t limit = 0;

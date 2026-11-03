@@ -21,6 +21,7 @@ public:
     virtual Response ResetPassword(std::uint32_t accountId, std::string const& idempotencyKey) = 0;
     virtual Response SuspendAccount(std::uint32_t accountId, std::string const& idempotencyKey) = 0;
     virtual Response RestoreAccount(std::uint32_t accountId, std::string const& idempotencyKey) = 0;
+    virtual Response CharacterStatsByName(std::string const& name) = 0;
     virtual Response CharacterStats(std::uint32_t characterId) = 0;
     virtual Response GuildStats(std::uint32_t guildId, std::size_t limit, std::size_t offset) = 0;
     virtual Response RealmStatus(PlayerAudience audience) = 0;

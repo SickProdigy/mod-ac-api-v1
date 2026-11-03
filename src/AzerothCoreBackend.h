@@ -27,6 +27,7 @@ public:
     Response ResetPassword(std::uint32_t accountId, std::string const& idempotencyKey) override;
     Response SuspendAccount(std::uint32_t accountId, std::string const& idempotencyKey) override;
     Response RestoreAccount(std::uint32_t accountId, std::string const& idempotencyKey) override;
+    Response CharacterStatsByName(std::string const& name) override;
     Response CharacterStats(std::uint32_t characterId) override;
     Response GuildStats(std::uint32_t guildId, std::size_t limit, std::size_t offset) override;
     Response RealmStatus(PlayerAudience audience) override;
